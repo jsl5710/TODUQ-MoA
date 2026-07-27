@@ -1,0 +1,34 @@
+# TODUQ-MoA configuration. Copy to moa.yaml and fill in. NEVER commit keys —
+# reference environment variables only.
+
+gate:
+  method: heuristic          # heuristic | toduq_classifier | semantic_entropy
+  threshold: 0.5
+  safety_classifier: lexicon # lexicon (offline) | <trained classifier ref>
+
+models:                      # shared LLMClient specs (same shape as TODUQ)
+  aggregator:
+    adapter: toduq_moa.runners.claude:ClaudeClient
+    model_id: claude-opus-5  # the "sophisticated reasoning model"
+  clarify:
+    adapter: toduq_moa.runners.claude:ClaudeClient
+    model_id: claude-sonnet-5
+
+experts:
+  rag_relational:
+    backend: sqlalchemy
+    dsn_env: MOA_RELATIONAL_DSN
+  rag_vector:
+    backend: chroma
+    collection: kb_v1
+    k: 4
+  rag_web:
+    backend: search_api
+    api_key_env: MOA_SEARCH_API_KEY
+  hitl:
+    queue: in_memory         # in_memory | <ticketing/on-call integration>
+    escalate_on: [self_harm, adversarial, high_stakes]
+
+routing:
+  # safety/major severity always short-circuits to hitl (not configurable off)
+  parameter_fanout: [rag_relational, rag_vector, rag_web]
