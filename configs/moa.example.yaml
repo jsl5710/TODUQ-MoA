@@ -2,8 +2,11 @@
 # reference environment variables only.
 
 gate:
-  method: heuristic          # heuristic | toduq_classifier | semantic_entropy
+  # UQ method from the shared registry (toduq_moa.uq): lexical | semantic_entropy
+  #   | self_consistency | verbalized_confidence. 'lexical' runs offline.
+  method: lexical
   threshold: 0.5
+  client: aggregator         # model role for response-based methods (see models.*)
   safety_classifier: lexicon # lexicon (offline) | <trained classifier ref>
 
 models:                      # shared LLMClient specs (same shape as TODUQ)

@@ -82,6 +82,11 @@ PYTHONPATH=src python -m toduq_moa.cli simulate
 
 See [`docs/simulator.md`](docs/simulator.md).
 
+The gate is driven by the **shared UQ layer** ([`docs/uq.md`](docs/uq.md)) — one
+implementation loadable by name, used by both TODUQ and TODUQ-MoA:
+`Gate("semantic_entropy", client=llm)` (default `Gate("lexical")`, offline). The
+safety screen always precedes the UQ score.
+
 ## Status
 
 Design scaffold + simulator. Interfaces and a runnable offline pipeline (stub

@@ -1,21 +1,25 @@
 """UQ gate: decide whether an input is uncertain, and classify it.
 
-Pluggable `UQMethod` protocol so any uncertainty quantifier fits — a TODUQ-style
-detector, semantic entropy over N samples, a calibrated classifier, or an
-external UQ service. Ships a keyword/heuristic gate for offline runs.
+The gate composes two things:
+  1. a **UQ method** from the shared `toduq_moa.uq` registry (the SAME
+     implementations TODUQ uses) — loadable by name, so any method of choice can
+     drive the router; and
+  2. a **safety screen** that flags safety-critical inputs for HITL escalation
+     independently of the UQ score, so a confident-but-harmful input still routes
+     to a human.
 
-The gate ALSO runs a safety screen: safety-critical inputs are flagged for HITL
-escalation independently of the uncertainty score, so a confident-but-harmful
-input still routes to a human.
+    Gate()                                   # default: shared "lexical", offline
+    Gate("semantic_entropy", client=llm)     # response-based, needs a model
 """
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 from toduq_moa.schema import Query, SafetyCategory, UQFlag
+from toduq_moa.uq import Client, UQMethod as _UQMethod, load_uq
 
-# Minimal, transparent safety lexicon for the offline gate. A production system
-# swaps this for a trained safety classifier; the escalation semantics stay.
+# Minimal, transparent safety lexicon. A production system swaps this for a
+# trained safety classifier; the escalation semantics stay.
 _SAFETY_MARKERS: dict[SafetyCategory, tuple[str, ...]] = {
     "self_harm": ("suicide", "kill myself", "self harm", "self-harm", "hurt myself"),
     "adversarial": ("ignore previous", "jailbreak", "system prompt", "disregard your rules"),
@@ -23,7 +27,8 @@ _SAFETY_MARKERS: dict[SafetyCategory, tuple[str, ...]] = {
 
 
 @runtime_checkable
-class UQMethod(Protocol):
+class UQGate(Protocol):
+    """The gate surface the orchestrator uses: Query -> UQFlag."""
     def score(self, query: Query) -> UQFlag: ...
 
 
@@ -35,12 +40,14 @@ def screen_safety(query: Query) -> SafetyCategory:
     return "none"
 
 
-class HeuristicGate:
-    """Offline UQ gate. Flags underspecified / hedged / unknowable-looking turns
-    and always applies the safety screen. Not a real UQ method — a stand-in that
-    keeps the pipeline runnable and the interface honest."""
+class Gate:
+    """Composes a shared UQ method + the safety screen into a UQFlag."""
 
-    threshold = 0.5
+    def __init__(self, uq: str | _UQMethod = "lexical", *, client: Optional[Client] = None,
+                 threshold: float = 0.5, **uq_kwargs):
+        self.uq = load_uq(uq, **uq_kwargs) if isinstance(uq, str) else uq
+        self.client = client
+        self.threshold = threshold
 
     def score(self, query: Query) -> UQFlag:
         safety = screen_safety(query)
@@ -48,20 +55,19 @@ class HeuristicGate:
             return UQFlag(is_uncertain=True, score=1.0, uncertainty_type="reasoning",
                           severity="major", safety_category=safety,
                           rationale=f"safety screen matched: {safety}")
+        r = self.uq.score(query.text, context=query.dialogue_context, client=self.client)
+        uncertain = r.score >= self.threshold
+        return UQFlag(is_uncertain=uncertain, score=r.score,
+                      uncertainty_type=r.uncertainty_type,
+                      severity="minor" if uncertain else "none",
+                      safety_category="none", rationale=f"uq={r.method}")
 
-        text = query.text.lower()
-        words = set(text.replace("?", " ").replace(".", " ").replace(",", " ").split())
-        hedge_words = {"maybe", "somewhere", "something", "or", "anywhere", "someone"}
-        hedge_phrases = ("not sure", "that one", "over there", "or something")
-        unknowable = ("will it", "next week", "next friday", "tomorrow", "in the future", "guarantee")
-        score = 0.0
-        utype = None
-        if words & hedge_words or any(p in text for p in hedge_phrases):
-            score, utype = 0.6, "input"
-        if any(u in text for u in unknowable):
-            score, utype = max(score, 0.8), "parameter"
-        return UQFlag(
-            is_uncertain=score >= self.threshold, score=score,
-            uncertainty_type=utype, severity="minor" if score >= self.threshold else "none",
-            rationale="heuristic gate",
-        )
+
+class HeuristicGate(Gate):
+    """Offline default: the shared `lexical` UQ method + safety screen."""
+    def __init__(self):
+        super().__init__("lexical")
+
+
+# Back-compat alias: the orchestrator's typing referenced UQMethod (Query->UQFlag).
+UQMethod = UQGate
