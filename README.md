@@ -70,11 +70,23 @@ aggregator cannot override a safety escalation. See
   aggregate. Evaluated *with* TODUQ's labels.
 - **TODDO** — measure discourse coherence of the resulting task-oriented dialogue.
 
+## Simulator
+
+The **TODUQ-MoA Simulator** replays a TODUQ sample turn-by-turn through the
+pipeline and tests whether the flagged turn **localizes** to the injected turn and
+**routes** to the correct expert (vs TODUQ's gold action):
+
+```bash
+PYTHONPATH=src python -m toduq_moa.cli simulate
+```
+
+See [`docs/simulator.md`](docs/simulator.md).
+
 ## Status
 
-Design scaffold. Interfaces and a runnable offline pipeline (stub experts +
-echo aggregator) are in place; real DB/vector/web backends and a live aggregator
-are the next milestones. See [`docs/`](docs/).
+Design scaffold + simulator. Interfaces and a runnable offline pipeline (stub
+experts + echo aggregator) are in place; real DB/vector/web backends, a live
+aggregator, and a trained UQ gate are the next milestones. See [`docs/`](docs/).
 
 ## License
 
